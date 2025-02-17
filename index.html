@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖片切割工具</title>
+    <script src="https://unpkg.com/tiff.js@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
+</head>
+<body>
+    <h1>📷 圖片切割工具</h1>
+    <input type="file" id="imageInput" accept="image/tiff, image/*">
+    <button id="downloadAll">下載所有圖片</button>
+    <canvas id="canvas" style="display: none;"></canvas>
+    <div id="output"></div>
+
+    <script>
+        document.getElementById('imageInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                let img = new Image();
+                
+                if (file.type === 'image/tiff' || file.name.endsWith('.tif')) {
+                    let buffer = e.target.result;
+                    let tiff = new Tiff({ buffer });
+                    let tiffCanvas = tiff.toCanvas();
+                    img.src = tiffCanvas.toDataURL();
+                } else {
+                    img.src = e.target.result;
+                }
+
+                img.onload = function() {
+                    const tileSize = 512;
+                    const canvas = document.getElementById('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const outputDiv = document.getElementById('output');
+                    outputDiv.innerHTML = '';
+                    
+                    let count = 0;
+                    let zip = new JSZip();
+                    
+                    for (let y = 0; y < img.height; y += tileSize) {
+                        for (let x = 0; x < img.width; x += tileSize) {
+                            let cropWidth = Math.min(tileSize, img.width - x);
+                            let cropHeight = Math.min(tileSize, img.height - y);
+                            
+                            const croppedCanvas = document.createElement('canvas');
+                            croppedCanvas.width = cropWidth;
+                            croppedCanvas.height = cropHeight;
+                            const croppedCtx = croppedCanvas.getContext('2d');
+                            croppedCtx.drawImage(canvas, x, y, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+                            
+                            const imgElement = document.createElement('img');
+                            imgElement.src = croppedCanvas.toDataURL();
+                            imgElement.style.margin = '5px';
+                            outputDiv.appendChild(imgElement);
+                            
+                            const downloadLinkPng = document.createElement('a');
+                            let pngData = croppedCanvas.toDataURL("image/png");
+                            downloadLinkPng.href = pngData;
+                            downloadLinkPng.download = `crop_${count}.png`;
+                            downloadLinkPng.innerText = `下載 PNG ${count}`;
+                            outputDiv.appendChild(downloadLinkPng);
+                            zip.file(`crop_${count}.png`, pngData.split(",")[1], { base64: true });
+                            
+                            const downloadLinkTiff = document.createElement('a');
+                            let tiffBlob = new Blob([croppedCanvas.toDataURL("image/png")], { type: 'image/tiff' });
+                            downloadLinkTiff.href = URL.createObjectURL(tiffBlob);
+                            downloadLinkTiff.download = `crop_${count}.tiff`;
+                            downloadLinkTiff.innerText = `下載 TIFF ${count}`;
+                            outputDiv.appendChild(downloadLinkTiff);
+                            zip.file(`crop_${count}.tiff`, tiffBlob);
+                            
+                            outputDiv.appendChild(document.createElement("br"));
+                            count++;
+                        }
+                    }
+                    console.log(`已生成 ${count} 張切割圖片`);
+                    
+                    document.getElementById("downloadAll").addEventListener("click", function() {
+                        zip.generateAsync({ type: "blob" }).then(function(content) {
+                            let zipBlob = URL.createObjectURL(content);
+                            let a = document.createElement("a");
+                            a.href = zipBlob;
+                            a.download = "cropped_images.zip";
+                            a.click();
+                        });
+                    });
+                };
+            };
+            
+            if (file.type === 'image/tiff' || file.name.endsWith('.tif')) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsDataURL(file);
+            }
+        });
+    </script>
+</body>
+</html>
